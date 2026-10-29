@@ -1,58 +1,117 @@
-# Public deployment
+# Free public deployment
 
-This project uses Vercel for the Next.js frontend, Render for the FastAPI API,
-and a hosted PostgreSQL database such as Neon. The app is public and does not
-require sign-in; anyone with the frontend URL can submit predictions.
+This project can be deployed without a paid hosting plan using:
 
-## 1. Push the project to GitHub
+- **Vercel Hobby** for the Next.js frontend.
+- **PythonAnywhere Beginner** for the Flask API and its SQLite database.
 
-Create an empty GitHub repository, then from this project directory run:
+The app and its GitHub repository are public. Anyone can submit predictions,
+and the dashboard shows the latest prediction records. Do not enter real or
+sensitive customer information.
 
-```powershell
-git init
-git add .
-git commit -m "Prepare SaaS churn app for deployment"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
-git push -u origin main
+Free hosting has limits. PythonAnywhere's free account has restricted outbound
+internet access and limited resources; Vercel Hobby is intended for personal
+projects. Check the providers' current terms and limits before relying on this
+setup for business-critical use.
+
+## 1. Deploy the API on PythonAnywhere
+
+1. Create a free PythonAnywhere Beginner account and open a **Bash console**.
+2. Clone this public repository and install the backend dependencies:
+
+   ```bash
+   git clone https://github.com/dishuj2006-tech/saas-churn-prediction-platform.git
+   cd saas-churn-prediction-platform/backend
+   mkvirtualenv --python=python3.13 churn-env
+   pip install -r requirement.txt
+   ```
+
+   If Python 3.13 is not offered for your account, choose a Python version
+   available in PythonAnywhere's **Web** tab and use that version with
+   `mkvirtualenv`.
+
+3. In the **Web** tab, add a web app. Select **Manual configuration** and the
+   same Python version used for the virtual environment.
+4. Set the web app's **Working directory** to:
+
+   ```text
+   /home/YOUR-USERNAME/saas-churn-prediction-platform/backend
+   ```
+
+   Replace `YOUR-USERNAME` with your PythonAnywhere username.
+5. Set **Virtualenv** to:
+
+   ```text
+   /home/YOUR-USERNAME/.virtualenvs/churn-env
+   ```
+
+6. Open the WSGI configuration file linked in the Web tab. Replace its
+   application setup with the following, filling in your username:
+
+   ```python
+   import sys
+
+   project_path = "/home/YOUR-USERNAME/saas-churn-prediction-platform/backend"
+   if project_path not in sys.path:
+       sys.path.insert(0, project_path)
+
+   from main import app as application
+   ```
+
+7. Save the WSGI file and click **Reload** in the Web tab. The SQLite database
+   is created in the backend directory. Test:
+
+   ```text
+   https://YOUR-USERNAME.pythonanywhere.com/health
+   ```
+
+   It should return `{"status":"ok"}`.
+
+## 2. Deploy the frontend on Vercel
+
+1. Import `dishuj2006-tech/saas-churn-prediction-platform` into Vercel.
+2. Set the project **Root Directory** to `frontend`.
+3. Add this environment variable:
+
+   ```text
+   NEXT_PUBLIC_API_URL=https://YOUR-USERNAME.pythonanywhere.com
+   ```
+
+4. Deploy and copy the production URL Vercel assigns to the app.
+
+## 3. Allow the Vercel site to call the API
+
+In the PythonAnywhere **Web** tab, reopen the WSGI file and add this before
+`from main import app as application`:
+
+```python
+import os
+
+os.environ["CORS_ORIGINS"] = "https://YOUR-PROJECT.vercel.app"
 ```
 
-Replace the remote URL with your repository's URL. Do not commit `.env` files,
-database files, passwords, or connection strings.
+Replace the example URL with the exact Vercel production origin (no trailing
+slash), save the file, and click **Reload**. If your Vercel production domain
+changes, update this origin and reload the API.
 
-## 2. Create the database
+## Updating the deployment
 
-Create a PostgreSQL database with a provider such as Neon. Copy its connection
-string (including its SSL option, if provided). Treat this string as a secret.
+Push code changes to the GitHub `main` branch. Vercel redeploys the frontend
+automatically. To update the PythonAnywhere API, run `git pull` in its Bash
+console, then click **Reload** in the Web tab.
 
-## 3. Deploy the API on Render
-
-In Render, create a Blueprint from the GitHub repository and select the
-repository's `render.yaml`. Set the following values when prompted:
-
-- `DATABASE_URL`: the PostgreSQL connection string from the database provider.
-- `CORS_ORIGINS`: temporarily use `http://localhost:3000`; replace it with the
-  Vercel domain after the frontend is deployed.
-
-After deployment, check `https://YOUR-API.onrender.com/health`. It should return
-`{"status":"ok"}`. Render's free web service may sleep when idle, so the first
-request after a period of inactivity can take longer.
-
-## 4. Deploy the frontend on Vercel
-
-Import the same GitHub repository into Vercel and set the project **Root
-Directory** to `frontend`. Add this environment variable:
-
-- `NEXT_PUBLIC_API_URL`: `https://YOUR-API.onrender.com` (no trailing slash).
-
-Deploy, then copy the Vercel domain into Render's `CORS_ORIGINS` value from
-step 3 and redeploy the API. Add comma-separated origins if you also want
-Vercel preview deployments to access the API. The browser only needs the
-public API URL; never put the database connection string in a `NEXT_PUBLIC_`
-variable.
+The deployment uses SQLite stored on PythonAnywhere, so prediction history
+persists with that backend app. Keep the database private and avoid collecting
+sensitive customer data: the prediction-history endpoint is public.
 
 ## Local development
 
-No environment variables are required for local development. The backend uses
-`backend/saas_churn.db` by default, and the frontend uses `http://localhost:8000`
-unless `NEXT_PUBLIC_API_URL` is set.
+The backend defaults to `backend/saas_churn.db` and serves on
+`http://127.0.0.1:8000` when run with `python main.py`. The frontend defaults
+to that local API unless `NEXT_PUBLIC_API_URL` is set.
+
+## Provider information
+
+- [PythonAnywhere free accounts and pricing](https://www.pythonanywhere.com/pricing/)
+- [PythonAnywhere Flask deployment guide](https://help.pythonanywhere.com/pages/Flask/)
+- [Vercel Hobby plan](https://vercel.com/docs/plans/hobby)
