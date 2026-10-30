@@ -5,14 +5,18 @@ This project can be deployed without a paid hosting plan using:
 - **Vercel Hobby** for the Next.js frontend.
 - **PythonAnywhere Beginner** for the Flask API and its SQLite database.
 
-The app and its GitHub repository are public. Anyone can submit predictions,
-and the dashboard shows the latest prediction records. Do not enter real or
-sensitive customer information.
+The anonymous demo does not store predictions. Users can register accounts to
+save prediction metrics; history and analytics are filtered to the signed-in
+account. The app does not collect customer names or IDs. Accounts do not have
+email verification or password recovery. The churn model is trained on
+synthetic data and is not validated for real customer decisions.
 
 Free hosting has limits. PythonAnywhere's free account has restricted outbound
 internet access and limited resources; Vercel Hobby is intended for personal
 projects. Check the providers' current terms and limits before relying on this
-setup for business-critical use.
+setup for business-critical use. This setup has no managed database backups or
+service-level guarantees. Do not use it for sensitive, regulated, or
+business-critical customer data.
 
 ## 1. Deploy the API on PythonAnywhere
 
@@ -49,7 +53,11 @@ setup for business-critical use.
    application setup with the following, filling in your username:
 
    ```python
+   import os
    import sys
+
+   os.environ["APP_SECRET_KEY"] = "PASTE_A_RANDOM_SECRET_HERE"
+   os.environ["CORS_ORIGINS"] = "https://YOUR-PROJECT.vercel.app"
 
    project_path = "/home/YOUR-USERNAME/saas-churn-prediction-platform/backend"
    if project_path not in sys.path:
@@ -58,8 +66,13 @@ setup for business-critical use.
    from main import app as application
    ```
 
+   Generate the secret in the Bash console with
+   `python -c "import secrets; print(secrets.token_urlsafe(48))"` and paste the
+   output into the WSGI file. Keep it private and unchanged between restarts.
+
 7. Save the WSGI file and click **Reload** in the Web tab. The SQLite database
-   is created in the backend directory. Test:
+   is created in the backend directory and upgraded automatically. Existing
+   prediction rows without an account are not shown to any user. Test:
 
    ```text
    https://YOUR-USERNAME.pythonanywhere.com/health
@@ -79,20 +92,23 @@ setup for business-critical use.
 
 4. Deploy and copy the production URL Vercel assigns to the app.
 
-## 3. Allow the Vercel site to call the API
+## 3. Configure the Vercel origin on the API
 
-In the PythonAnywhere **Web** tab, reopen the WSGI file and add this before
-`from main import app as application`:
-
-```python
-import os
-
-os.environ["CORS_ORIGINS"] = "https://YOUR-PROJECT.vercel.app"
-```
+In the PythonAnywhere **Web** tab, reopen the WSGI file and update the
+`CORS_ORIGINS` value you added in step 6:
 
 Replace the example URL with the exact Vercel production origin (no trailing
 slash), save the file, and click **Reload**. If your Vercel production domain
 changes, update this origin and reload the API.
+
+Visitors can try predictions in demo mode without an account; those inputs are
+not stored. Creating an account requires an email and a password of at least
+12 characters. Sign-in tokens expire after 12 hours. There is no email
+verification or password-reset flow, so users who forget a password cannot
+recover that account. Users can delete their account and saved predictions
+from the dashboard. Account registration, login, and prediction endpoints are
+rate-limited in process memory; limits can reset on restarts and may vary across
+workers.
 
 ## Updating the deployment
 
@@ -100,15 +116,19 @@ Push code changes to the GitHub `main` branch. Vercel redeploys the frontend
 automatically. To update the PythonAnywhere API, run `git pull` in its Bash
 console, then click **Reload** in the Web tab.
 
-The deployment uses SQLite stored on PythonAnywhere, so prediction history
-persists with that backend app. Keep the database private and avoid collecting
-sensitive customer data: the prediction-history endpoint is public.
+The deployment uses SQLite stored on PythonAnywhere, so account and prediction
+records persist with that backend app. Avoid collecting customer names, IDs, or
+other identifying information. Only submit metrics you are authorized to
+process. Prediction scores are not validated for operational use. Do not rely
+on the free tier for sensitive data, backups, or production availability.
 
 ## Local development
 
 The backend defaults to `backend/saas_churn.db` and serves on
 `http://127.0.0.1:8000` when run with `python main.py`. The frontend defaults
-to that local API unless `NEXT_PUBLIC_API_URL` is set.
+to that local API unless `NEXT_PUBLIC_API_URL` is set. Set a persistent
+`APP_SECRET_KEY` in your local environment to keep accounts signed in across
+API restarts.
 
 ## Provider information
 

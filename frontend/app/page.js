@@ -23,47 +23,144 @@ export default function ChurnDashboard() {
   });
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [token, setToken] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
+  const [authMode, setAuthMode] = useState('demo');
+  const [authForm, setAuthForm] = useState({ email: '', password: '' });
+  const [authLoading, setAuthLoading] = useState(false);
 
-  // Fetch history and analytics summary from backend
-  const fetchData = async () => {
+  const fetchData = async (authToken) => {
+    if (!authToken) {
+      setHistory([]);
+      setAnalytics({
+        total_predictions: 0,
+        high_risk_count: 0,
+        low_risk_count: 0,
+        average_monthly_charges: 0,
+      });
+      return;
+    }
+
     try {
-      const histRes = await fetch(`${API_BASE_URL}/api/prediction-history`);
+      const headers = { Authorization: `Bearer ${authToken}` };
+      const histRes = await fetch(`${API_BASE_URL}/api/prediction-history`, { headers });
       if (!histRes.ok) {
         throw new Error(`Could not load prediction history (HTTP ${histRes.status}).`);
       }
       setHistory(await histRes.json());
 
-      const analRes = await fetch(`${API_BASE_URL}/api/analytics-summary`);
+      const analRes = await fetch(`${API_BASE_URL}/api/analytics-summary`, { headers });
       if (!analRes.ok) {
         throw new Error(`Could not load analytics (HTTP ${analRes.status}).`);
       }
       setAnalytics(await analRes.json());
       setApiError('');
     } catch (err) {
+      if (err.message.includes('HTTP 401')) {
+        window.sessionStorage.removeItem('churn-auth-token');
+        setToken('');
+        setAccountEmail('');
+      }
       setApiError(`Unable to connect to the API. ${err.message}`);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    const storedToken = window.sessionStorage.getItem('churn-auth-token');
+    const storedEmail = window.sessionStorage.getItem('churn-account-email');
+    if (storedToken) {
+      setToken(storedToken);
+      setAccountEmail(storedEmail || '');
+      setAuthMode('account');
+    }
   }, []);
+
+  useEffect(() => {
+    fetchData(token);
+  }, [token]);
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setApiError('');
+    try {
+      const action = authMode === 'register' ? 'register' : 'login';
+      const response = await fetch(`${API_BASE_URL}/api/auth/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authForm),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || `Account request failed (HTTP ${response.status}).`);
+      }
+      window.sessionStorage.setItem('churn-auth-token', data.token);
+      window.sessionStorage.setItem('churn-account-email', data.email);
+      setToken(data.token);
+      setAccountEmail(data.email);
+      setAuthMode('account');
+      setAuthForm({ email: '', password: '' });
+    } catch (err) {
+      setApiError(`Unable to ${authMode === 'register' ? 'create an account' : 'sign in'}. ${err.message}`);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    window.sessionStorage.removeItem('churn-auth-token');
+    window.sessionStorage.removeItem('churn-account-email');
+    setToken('');
+    setAccountEmail('');
+    setResult(null);
+    setAuthMode('demo');
+    setApiError('');
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm('Delete your account and all saved predictions? This cannot be undone.')) {
+      return;
+    }
+
+    setApiError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/account`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error(`Account deletion failed (HTTP ${response.status}).`);
+      }
+      handleLogout();
+    } catch (err) {
+      setApiError(`Unable to delete your account. ${err.message}`);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setApiError('');
     try {
-      const res = await fetch(`${API_BASE_URL}/api/predict-churn`, {
+      const res = await fetch(
+        `${API_BASE_URL}${token ? '/api/predict-churn' : '/api/demo/predict-churn'}`,
+        {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(formData),
-      });
+        }
+      );
       if (!res.ok) {
         throw new Error(`Prediction failed (HTTP ${res.status}).`);
       }
       const data = await res.json();
       setResult(data);
-      fetchData(); // Refresh history and charts
+      if (token) {
+        fetchData(token);
+      }
     } catch (err) {
       setApiError(`Unable to run the prediction. ${err.message}`);
     } finally {
@@ -85,13 +182,67 @@ export default function ChurnDashboard() {
           Advanced Machine Learning Prediction Engine & Database Intelligence Dashboard
         </p>
       </header>
+      <p style={{ background: '#fffbeb', color: '#92400e', padding: '0.75rem 1rem', borderRadius: '6px', marginBottom: '1rem' }}>
+        Model scores are based on synthetic training data and have not been validated for real customer decisions.
+      </p>
       {apiError && (
         <p role="alert" style={{ color: '#b91c1c', marginBottom: '1rem' }}>
           {apiError}
         </p>
       )}
 
-      {/* KPI Summary Cards */}
+      {!token ? (
+        <section style={{ background: '#fff', padding: '1rem 1.25rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <button type="button" onClick={() => setAuthMode('demo')}>Public demo</button>
+            <button type="button" onClick={() => setAuthMode('login')}>Sign in</button>
+            <button type="button" onClick={() => setAuthMode('register')}>Create account</button>
+          </div>
+          {authMode === 'login' || authMode === 'register' ? (
+            <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+              <label>
+                <span style={{ display: 'block', fontSize: '0.8rem' }}>Email</span>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={authForm.email}
+                  onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                <span style={{ display: 'block', fontSize: '0.8rem' }}>Password</span>
+                <input
+                  type="password"
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                  minLength={authMode === 'register' ? 12 : undefined}
+                  maxLength={128}
+                  value={authForm.password}
+                  onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+                  required
+                />
+              </label>
+              <button type="submit" disabled={authLoading}>
+                {authLoading ? 'Please wait...' : authMode === 'register' ? 'Create account' : 'Sign in'}
+              </button>
+            </form>
+          ) : (
+            <p style={{ margin: 0, color: '#475569' }}>
+              Demo mode: predictions are not saved. Use fictional values only; sign in to save predictions privately to your account.
+            </p>
+          )}
+        </section>
+      ) : (
+        <p style={{ color: '#475569', marginBottom: '1.5rem' }}>
+          Signed in as {accountEmail}. Saved predictions and analytics are private to this account.{' '}
+          <button type="button" onClick={handleLogout}>Sign out</button>{' '}
+          <button type="button" onClick={handleDeleteAccount}>Delete account and data</button>
+        </p>
+      )}
+
+      {token && (
+      <>
+      {/* Account-only KPI Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
         <div style={{ background: '#fff', padding: '1.25rem', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
           <span style={{ fontSize: '0.875rem', color: '#64748b' }}>Total Audits</span>
@@ -110,11 +261,13 @@ export default function ChurnDashboard() {
           <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#2563eb' }}>${analytics.average_monthly_charges}</div>
         </div>
       </div>
+      </>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2.5rem' }}>
         {/* Form Panel */}
         <section style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-          <h2 style={{ fontSize: '1.25rem', marginTop: 0 }}>Customer Metrics Input</h2>
+          <h2 style={{ fontSize: '1.25rem', marginTop: 0 }}>{token ? 'Private Customer Metrics' : 'Demo Metrics'}</h2>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>Tenure (Months)</label>
@@ -190,7 +343,7 @@ export default function ChurnDashboard() {
                 marginTop: '0.5rem'
               }}
             >
-              {loading ? 'Analyzing Risk...' : 'Run Churn Prediction'}
+              {loading ? 'Analyzing Risk...' : token ? 'Run Private Prediction' : 'Run Demo Prediction'}
             </button>
           </form>
         </section>
@@ -222,7 +375,9 @@ export default function ChurnDashboard() {
             )}
           </section>
 
-          {/* Recharts Distribution Graph */}
+          {token && (
+          <>
+          {/* Account-only distribution graph */}
           <section style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <h2 style={{ fontSize: '1.1rem', marginTop: 0, marginBottom: '0.5rem' }}>Risk Distribution Overview</h2>
             <div style={{ width: '100%', height: '160px' }}>
@@ -240,10 +395,14 @@ export default function ChurnDashboard() {
               </ResponsiveContainer>
             </div>
           </section>
+          </>
+          )}
         </div>
       </div>
 
-      {/* Historical Audit Logs Table */}
+      {token && (
+      <>
+      {/* Account-only prediction history */}
       <section style={{ background: '#fff', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
         <h2 style={{ fontSize: '1.25rem', marginTop: 0, marginBottom: '1rem' }}>Database Audit History</h2>
         <div style={{ overflowX: 'auto' }}>
@@ -277,6 +436,8 @@ export default function ChurnDashboard() {
           </table>
         </div>
       </section>
+      </>
+      )}
     </main>
   );
 }

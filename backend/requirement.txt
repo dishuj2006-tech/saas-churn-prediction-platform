@@ -1,5 +1,6 @@
 Flask
 flask-cors
+Flask-Limiter
 gunicorn
 pandas
 numpy
